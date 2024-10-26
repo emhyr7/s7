@@ -2,6 +2,8 @@
 
 #include <assert.h>
 
+typedef __INT32_TYPE__ SINT32;
+
 typedef __UINT32_TYPE__ UINT32;
 typedef __UINT64_TYPE__ UINT64;
 
@@ -21,11 +23,18 @@ UINT64 get_size_of_file(HANDLE file)
 	return file_size.QuadPart;
 }
 
-UINT32 read_from_file(void *buffer, UINT32 file_size, HANDLE file)
+UINT32 read_from_file(void *buffer, UINT32 size, HANDLE file)
 {
-	DWORD bytes_read_size;
-	assert(ReadFile(file, buffer, file_size, &bytes_read_size, 0));
-	return bytes_read_size;
+	DWORD read_size;
+	assert(ReadFile(file, buffer, size, &read_size, 0));
+	return read_size;
+}
+
+UINT32 write_into_file(const void *buffer, UINT32 size, HANDLE file)
+{
+	DWORD written_size;
+	assert(WriteFile(file, buffer, size, &written_size, 0));
+	return written_size;
 }
 
 void *allocate(UINT32 size)

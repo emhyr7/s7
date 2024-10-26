@@ -1,7 +1,8 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
+
+#define exit(...) _exit(__VA_ARGS__)
 
 typedef __UINT8_TYPE__  UINT8;
 typedef __UINT16_TYPE__ UINT16;
@@ -11,17 +12,149 @@ typedef __INT8_TYPE__   SINT8;
 typedef __INT16_TYPE__  SINT16;
 typedef __INT32_TYPE__  SINT32;
 typedef __INT64_TYPE__  SINT64;
-typedef float           REAL32;
-typedef double          REAL64;
+typedef float           FLOAT32;
+typedef double          FLOAT64;
+
+typedef UINT8  BYTE;
+typedef UINT16 HALF;
+typedef UINT32 WORD;
+typedef UINT64 LONG;
+
+typedef UINT8 BIT;
 
 typedef va_list VARGS;
 
-#define get_vargs(...)  va_start(__VA_ARGS__)
-#define get_varg(...)   va_arg(__VA_ARGS__)
-#define end_vargs(...)  va_end(__VA_ARGS__)
-#define copy_vargs(...) va_copy(__VA_ARGS__)
+#define get_vargs(...)        va_start(__VA_ARGS__)
+#define get_varg(type, vargs) va_arg(vargs, type)
+#define end_vargs(...)        va_end(__VA_ARGS__)
+#define copy_vargs(...)       va_copy(__VA_ARGS__)
+
+/*
+	uint64 = *(UINT64 *)&float64;
+	UINT32 mantissa = uint64 & 0xfffffffffffff;
+	uint64 >>= 52;
+	UINT8 exponent = uint64 & 0x7ff;
+	uint64 >>= 11;
+	BIT sign = uint64 & 1;
+*/
 
 typedef char ASCII;
+
+_Noreturn void exit(SINT32 status);
+
+void *allocate(UINT32 size);
+
+typedef void *HANDLE;
+
+HANDLE open_file       (const ASCII *path);
+UINT64 get_size_of_file(HANDLE file);
+UINT32 read_from_file  (void *buffer, UINT32 size, HANDLE file);
+UINT32 write_into_file (const void *buffer, UINT32 size, HANDLE file);
+
+/*
+	The following formats are supported:
+
+		%% - '%'
+		%t - TEXT
+		%f - FLOAT64
+		%b - SINT8
+		%h - SINT16
+		%w - SINT32
+		%l - SINT64
+		%u - UINT64
+*/
+UINT32 format_v(ASCII *buffer, const ASCII *format, VARGS vargs)
+{
+	ASCII *caret = buffer;
+
+	while(*format)
+	{
+		ASCII byte = *format++;
+		if(byte == '%')
+		{
+			ASCII   *text;
+			UINT64   uint64;
+			SINT64   sint64;
+			FLOAT64  float64;
+			ASCII    temporary[64];
+			
+			ASCII specifier = *format++;
+			switch(specifier)
+			{
+			case '%':
+				*caret++ = '%';
+				break;
+			case 't':
+				text = get_varg(ASCII *, vargs);
+			print_text:
+				while(*text) *caret++ = *text++;
+				break;
+			case 'f':
+				float64 = get_varg(FLOAT64, vargs);
+				*caret++ = *(UINT64 *)(&float64) & 0x8000000000000000 ? '-' : '+';
+				UINT64 whole = (UINT64)float64;
+				text = temporary + sizeof(temporary) - 1;
+				*text-- = 0;
+				for(uint64 = (FLOAT64)(float64 - whole) * 1000000; uint64; uint64 /= 10) *text-- = '0' + uint64 % 10;
+				*text-- = '.';
+				for(; whole; whole /= 10) *text-- = '0' + whole % 10;
+				++text;
+				goto print_text;
+			default:
+				uint64 = get_varg(UINT64, vargs);
+				switch(specifier)
+				{
+				case 'b':
+					sint64 = (SINT64)*(SINT8 *)&uint64;
+					goto print_signed;
+				case 'h':
+					sint64 = (SINT64)*(SINT16 *)&uint64;
+					goto print_signed;
+				case 'w':
+					sint64 = (SINT64)*(SINT32 *)&uint64;
+					goto print_signed;
+				case 'l':
+					sint64 = *(SINT64 *)&uint64;
+				print_signed:
+					*caret++ = sint64 & 0x8000000000000000 ? '-' : '+';
+					uint64 = ~(sint64 - 1);
+					goto print_unsigned;
+				case 'u':
+				print_unsigned:
+					text = temporary + sizeof(temporary) - 1;
+					*text-- = 0;
+					for(; uint64; uint64 /= 10) *text-- = '0' + uint64 % 10;
+					++text;
+					goto print_text;
+				default:
+					assert(!"Shitty ass format!");
+					break;
+				}
+			}
+		}
+		else *caret++ = byte;
+	}
+
+	*caret = 0;
+	return 0;
+}
+
+UINT32 format(ASCII *buffer, const ASCII *format, ...)
+{
+	VARGS vargs;
+	get_vargs(vargs, format);
+	UINT32 result = format_v(buffer, format, vargs);
+	end_vargs(vargs);
+	return result;
+}
+
+void print_v(const ASCII *format, VARGS vargs)
+{
+
+	while(*format++)
+	{
+	}
+}
 
 typedef enum : UINT64
 {
@@ -63,7 +196,7 @@ TYPE real64_type = { TYPE_CLASS_real64, 1 };
 
 typedef struct
 {
-	UINT8 *identifier;
+	ASCII *identifier;
 	TYPE  *type;
 } VALUE;
 
@@ -124,7 +257,7 @@ const INSTRUCTION null_instruction = { NULL_OPERATOR };
 
 typedef struct
 {
-	UINT8       *identifier;
+	ASCII       *identifier;
 	VALUE       *values; /* the first `null_value` terminates the arguments,the second `null_value` terminates the results */
 	INSTRUCTION *instructions;
 } PROCEDURE;
@@ -189,43 +322,29 @@ typedef struct
 	UINT64  column;
 } SOURCE_LOCATION;
 
-typedef struct
-{
-	TOKEN token;
-} PARSER;
-
-typedef struct
-{
-} NODE;
-
-typedef struct
-{
-
-} SYNTAX;
-
-inline UINT8 check_whitespace(ASCII byte)
+inline BIT check_whitespace(ASCII byte)
 {
 	return (byte >= '\t' && byte <= '\r')
 		|| (byte == ' ');
 }
 
-inline UINT8 check_letter(ASCII byte)
+inline BIT check_letter(ASCII byte)
 {
 	return (byte >= 'A' && byte <= 'Z')
 		|| (byte >= 'a' && byte <= 'z');
 }
 
-inline UINT8 check_digit(ASCII byte)
+inline BIT check_digit(ASCII byte)
 {
 	return byte >= '0' && byte <= '9';
 }
 
-inline UINT8 check_binary(ASCII byte)
+inline BIT check_binary(ASCII byte)
 {
 	return byte == '0' || byte == '1';
 }
 
-inline UINT8 check_hex(ASCII byte)
+inline BIT check_hex(ASCII byte)
 {
 	return check_digit(byte)
 		|| (byte >= 'A' && byte <= 'F')
@@ -285,7 +404,7 @@ _Noreturn void fail(const SOURCE_RANGE *range, const ASCII *message, ...)
 	exit(-1);
 }
 
-UINT8 tokenize(TOKEN *token, SOURCE_LOCATION *location)
+BIT tokenize(TOKEN *token, SOURCE_LOCATION *location)
 {
 	const ASCII *failure_message = 0;
 
@@ -308,7 +427,7 @@ repeat:
 	}
 	else if(check_digit(byte))
 	{
-		UINT8 (*number_checker)(ASCII) = &check_digit;
+		BIT (*number_checker)(ASCII) = &check_digit;
 		token_type = TOKEN_TYPE_digital;
 		if(byte == '0')
 		{
@@ -413,21 +532,58 @@ failed:
 	return 0;
 }
 
-SYNTAX *parse(SOURCE_LOCATION *location, PARSER *parser)
+typedef struct
 {
-	/* per expression, construct a discontiguous tree of nodes, then flatten
-	   the resulting tree */
+	TOKEN           token;
+	SOURCE_LOCATION location;
+} PARSER;
 
-	SYNTAX *result = 0;
-	return result;
+typedef enum
+{
+	NULL_NODE_TYPE,
+} NODE_TYPE;
+
+typedef struct
+{
+	NODE_TYPE type;
+	NODE_TYPE subnodes[]; /* a list of nodes terminated with `null_node` */
+} NODE;
+
+const NODE null_node = { NULL_NODE_TYPE };
+
+typedef struct
+{
+	NODE_TYPE type;
+	NODE subnode; /* a list of nodes until `null_node` */
+} UNARY_NODE;
+
+typedef struct
+{
+	NODE_TYPE type;
+	NODE subnodes[]; /* two lists of nodes separated with `null_node` */
+} BINARY_NODE;
+
+typedef struct
+{
+	NODE_TYPE type;
+	UINT64 count; /* count of lists */
+	NODE subnodes[]; /* a list of lists of nodes separated with `null_node` */
+} LIST_NODE;
+
+typedef struct
+{
+} SYNTAX;
+
+typedef UINT8 PRECEDENCE;
+
+void parse_node(PRECEDENCE left_precedence, TOKEN *token)
+{
 }
 
-typedef void *HANDLE;
-
-HANDLE open_file(const ASCII *path);
-UINT64 get_size_of_file(HANDLE file);
-UINT32 read_from_file(void *buffer, UINT32 file_size, HANDLE file);
-void *allocate(UINT32 size);
+SYNTAX *parse(SOURCE *source)
+{
+	return 0;
+}
 
 void load_file(const ASCII *file_path, SOURCE *source)
 {
@@ -446,6 +602,10 @@ void print_help(void)
 
 int main(int argc, char *argv[])
 {
+	ASCII buffer[128];
+	format(buffer, "%t %u %b %f %f", "Hello, World!", 7, -21, 9.14, 9.0);
+
+#if 0
 	if(argc <= 1)
 	{
 		print_help();
@@ -454,16 +614,9 @@ int main(int argc, char *argv[])
 
 	SOURCE source;
 	load_file(argv[1], &source);
-	SOURCE_LOCATION location =
-	{
-		&source,
-		0,
-		1,
-		1
-	};
+	SOURCE_LOCATION location = { &source, 0, 1, 1 };
 	TOKEN token;
-	while(tokenize(&token, &location))
-		report(&(SOURCE_RANGE){&source, token.range}, "token: ");
-
+	while(tokenize(&token, &location)) report(&(SOURCE_RANGE){&source, token.range}, "token: ");
+#endif
 	return 0;
 }
