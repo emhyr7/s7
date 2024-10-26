@@ -1,0 +1,23 @@
+uint8: 255;
+
+{
+	counter: uint8 = 0;
+	counter-limit: uint8 = 32;
+	.beginkloop: {
+		counter >= 32 ? 'end_loop;
+		print("counter: %d\n", counter);
+		counter += 1;
+		'begin-loop;
+	} .end-loop:
+}
+
+{
+	counter: uint8 = 0;
+	counter-limit: uint8 = 32;
+	{
+		counter >= 32 ? '};
+		print("counter: %d\n", counter);
+		counter += 1;
+		'{;
+	}
+}
