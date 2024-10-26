@@ -2,6 +2,10 @@
 #include <stdarg.h>
 #include <stdio.h>
 
+#undef stdin
+#undef stdout
+#undef stderr
+
 #define exit(...) _exit(__VA_ARGS__)
 
 typedef __UINT8_TYPE__  UINT8;
@@ -51,9 +55,12 @@ UINT64 get_size_of_file(HANDLE file);
 UINT32 read_from_file  (void *buffer, UINT32 size, HANDLE file);
 UINT32 write_into_file (const void *buffer, UINT32 size, HANDLE file);
 
+extern HANDLE stdin;
+extern HANDLE stdout;
+extern HANDLE stderr;
+
 /*
 	The following formats are supported:
-
 		%% - '%'
 		%t - TEXT
 		%f - FLOAT64
@@ -63,8 +70,11 @@ UINT32 write_into_file (const void *buffer, UINT32 size, HANDLE file);
 		%l - SINT64
 		%u - UINT64
 */
-UINT32 format_v(ASCII *buffer, const ASCII *format, VARGS vargs)
+ASCII *format_v(ASCII *buffer, const ASCII *format, VARGS vargs)
 {
+	/* TODO: if `!buffer`, don't write, but keep incrementing to return
+	   what would be the end of the formatted text if `buffer` wasn't null */
+
 	ASCII *caret = buffer;
 
 	while(*format)
@@ -136,24 +146,34 @@ UINT32 format_v(ASCII *buffer, const ASCII *format, VARGS vargs)
 	}
 
 	*caret = 0;
-	return 0;
+	return caret;
 }
 
-UINT32 format(ASCII *buffer, const ASCII *format, ...)
+ASCII *format(ASCII *buffer, const ASCII *format, ...)
 {
 	VARGS vargs;
 	get_vargs(vargs, format);
-	UINT32 result = format_v(buffer, format, vargs);
+	ASCII *caret = format_v(buffer, format, vargs);
 	end_vargs(vargs);
-	return result;
+	return caret;
 }
 
-void print_v(const ASCII *format, VARGS vargs)
+UINT32 print_v(const ASCII *format, VARGS vargs)
 {
+	ASCII message[4096];
+	ASCII *caret = format_v(message, format, vargs);
+	UINT32 written_size = caret - message;
+	written_size = write_into_file(message, written_size, stdout);
+	return written_size;
+}
 
-	while(*format++)
-	{
-	}
+UINT32 print(const ASCII *format, ...)
+{
+	VARGS vargs;
+	get_vargs(vargs, format);
+	UINT32 written_size = print_v(format, vargs);
+	end_vargs(vargs);
+	return written_size;
 }
 
 typedef enum : UINT64
@@ -600,10 +620,10 @@ void print_help(void)
 	printf("s7c <source-path>");
 }
 
-int main(int argc, char *argv[])
+int start(int argc, char *argv[])
 {
 	ASCII buffer[128];
-	format(buffer, "%t %u %b %f %f", "Hello, World!", 7, -21, 9.14, 9.0);
+	print("%t %u %b %f %f\n", "Hello, World!", 7, -21, 9.14, 9.0);
 
 #if 0
 	if(argc <= 1)
