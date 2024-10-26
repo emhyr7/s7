@@ -1,10 +1,5 @@
 #include <assert.h>
 #include <stdarg.h>
-#include <stdio.h>
-
-#undef stdin
-#undef stdout
-#undef stderr
 
 #define exit(...) _exit(__VA_ARGS__)
 
@@ -59,6 +54,11 @@ extern HANDLE stdin;
 extern HANDLE stdout;
 extern HANDLE stderr;
 
+void copy_bytes(BYTE *output, const BYTE *input, UINT32 size)
+{
+	while(size--) *output++ = *input++;
+}
+
 /*
 	The following formats are supported:
 		%% - '%'
@@ -103,11 +103,14 @@ ASCII *format_v(ASCII *buffer, const ASCII *format, VARGS vargs)
 				float64 = get_varg(FLOAT64, vargs);
 				*caret++ = *(UINT64 *)(&float64) & 0x8000000000000000 ? '-' : '+';
 				UINT64 whole = (UINT64)float64;
+				UINT64 fraction = (FLOAT64)(float64 - whole) * 1000000;
 				text = temporary + sizeof(temporary) - 1;
 				*text-- = 0;
-				for(uint64 = (FLOAT64)(float64 - whole) * 1000000; uint64; uint64 /= 10) *text-- = '0' + uint64 % 10;
+				if(!fraction) *text-- = '0';
+				else for(uint64 = fraction; uint64; uint64 /= 10) *text-- = '0' + uint64 % 10;
 				*text-- = '.';
-				for(; whole; whole /= 10) *text-- = '0' + whole % 10;
+				if(!whole) *text-- = '0';
+				else for(; whole; whole /= 10) *text-- = '0' + whole % 10;
 				++text;
 				goto print_text;
 			default:
@@ -133,7 +136,8 @@ ASCII *format_v(ASCII *buffer, const ASCII *format, VARGS vargs)
 				print_unsigned:
 					text = temporary + sizeof(temporary) - 1;
 					*text-- = 0;
-					for(; uint64; uint64 /= 10) *text-- = '0' + uint64 % 10;
+					if(!uint64) *text-- = '0';
+					else for(; uint64; uint64 /= 10) *text-- = '0' + uint64 % 10;
 					++text;
 					goto print_text;
 				default:
@@ -395,14 +399,17 @@ ASCII advance(SOURCE_LOCATION *location)
 
 void report_v(const SOURCE_RANGE *range, const ASCII *message, VARGS vargs) 
 {
-	fprintf(stderr, "%s[%llu-%llu|%llu,%llu]: ", range->source->path, range->range.beginning, range->range.ending, range->range.row, range->range.column);
-	vfprintf(stderr, message, vargs);
-	fputc('\n', stderr);
+	print("%t[%u-%u|%u,%u]: ", range->source->path, range->range.beginning, range->range.ending, range->range.row, range->range.column);
+	print_v(message, vargs);
+	print("\n");
 
 	UINT64 range_size = range->range.ending - range->range.beginning;
 	if(!range_size) return;
 
-	fprintf(stderr, "\t%.*s\n", (int)range_size, range->source->data + range->range.beginning);
+	ASCII view[range_size + 1];
+	copy_bytes((BYTE *)view, (BYTE *)(range->source->data + range->range.beginning), range_size);
+	view[range_size] = 0;
+	print("\t%t\n", view);
 	/* TODO: print a view of the source location */
 }
 
@@ -617,7 +624,7 @@ void load_file(const ASCII *file_path, SOURCE *source)
 
 void print_help(void)
 {
-	printf("s7c <source-path>");
+	print("s7c <source-path>");
 }
 
 int start(int argc, char *argv[])
@@ -625,7 +632,6 @@ int start(int argc, char *argv[])
 	ASCII buffer[128];
 	print("%t %u %b %f %f\n", "Hello, World!", 7, -21, 9.14, 9.0);
 
-#if 0
 	if(argc <= 1)
 	{
 		print_help();
@@ -637,6 +643,5 @@ int start(int argc, char *argv[])
 	SOURCE_LOCATION location = { &source, 0, 1, 1 };
 	TOKEN token;
 	while(tokenize(&token, &location)) report(&(SOURCE_RANGE){&source, token.range}, "token: ");
-#endif
 	return 0;
 }
